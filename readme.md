@@ -1,151 +1,219 @@
 # 📝 Task API
-A simple RESTful CRUD API built with **FastAPI** for managing an in-memory to-do list.
-This project demonstrates the four basic CRUD operations:
-- ✅ Create
-- ✅ Read
-- ✅ Update
-- ✅ Delete
-The API uses an in-memory list to store tasks, meaning all data is lost when the server is restarted.
+
+A RESTful CRUD API built with **FastAPI**, now backed by **PostgreSQL** for persistent storage.
+
+The entire stack — app, database, and cache — runs with a single `docker compose up`.
+
 ---
+
 ## 🚀 Features
-- FastAPI backend
-- CRUD operations
+
+- FastAPI backend with async Postgres (asyncpg)
+- Full CRUD operations with input validation
+- **Pluggable repository pattern** — swap storage without touching routes or service logic
+- PostgreSQL with Docker volume for data persistence
+- Redis container ready for Week 4 (cache / pub-sub)
 - Automatic Swagger UI documentation
-- Input validation
-- Proper HTTP status codes
-- In-memory data storage
-- Interactive API testing
+- One-command startup via Docker Compose
+- `.env`-driven configuration (gitignored; `.env.example` committed)
+
 ---
+
 ## 🛠️ Tech Stack
-- Python 3.10+
-- FastAPI
-- Uvicorn
-- Pydantic
+
+| Layer        | Technology           |
+|--------------|----------------------|
+| API          | FastAPI + Uvicorn    |
+| Validation   | Pydantic v2          |
+| Database     | PostgreSQL 16        |
+| DB Driver    | asyncpg              |
+| Cache        | Redis 7 (stretch)    |
+| Container    | Docker + Compose     |
+
 ---
-## 📦 Installation
-### 1. Clone the repository
+
+## 📦 Project Structure
+
+```
+task-api/
+├── main.py               # FastAPI app — routes & lifespan
+├── repository.py          # Abstract TaskRepository interface
+├── memory_repository.py   # In-memory implementation (original A2)
+├── pg_repository.py       # PostgreSQL implementation (Week 3)
+├── requirements.txt       # Python dependencies
+├── Dockerfile             # App container image
+├── docker-compose.yml     # Full stack (app + db + redis)
+├── .env.example           # Sample environment variables
+├── .env                   # Real env vars (gitignored)
+├── .dockerignore
+├── db/
+│   └── init.sql           # Table creation + seed data
+├── docs/
+│   └── swagger-ui.png
+└── readme.md
+```
+
+---
+
+## ▶️ Quick Start
+
+### Prerequisites
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) installed and running
+
+### 1. Clone & configure
+
 ```bash
 git clone https://github.com/Abhi757575/task-api.git
 cd task-api
+git checkout week-3
+cp .env.example .env      # defaults work out of the box
 ```
-### 2. Create a virtual environment
+
+### 2. Start the stack
+
+```bash
+docker compose up --build
+```
+
+This starts:
+| Service | Port  |
+|---------|-------|
+| App     | 8000  |
+| Postgres| 5432  |
+| Redis   | 6379  |
+
+### 3. Use the API
+
+- **Swagger UI** → [http://localhost:8000/docs](http://localhost:8000/docs)
+- **ReDoc** → [http://localhost:8000/redoc](http://localhost:8000/redoc)
+- **Health check** → [http://localhost:8000/health](http://localhost:8000/health)
+
+---
+
+## 🔌 API Endpoints
+
+| Method | Endpoint         | Description              |
+|--------|------------------|--------------------------|
+| GET    | `/`              | API information          |
+| GET    | `/health`        | Health check + backend   |
+| GET    | `/tasks`         | List all tasks           |
+| GET    | `/tasks/{id}`    | Get a task by ID         |
+| POST   | `/tasks`         | Create a new task        |
+| PUT    | `/tasks/{id}`    | Update an existing task  |
+| DELETE | `/tasks/{id}`    | Delete a task            |
+
+---
+
+## 🏗️ Architecture — Repository Pattern
+
+**Service and routes are unchanged from Week 2.** Only the storage layer was swapped.
+
+```
+Routes (main.py)  →  TaskRepository (interface)  →  PgTaskRepository
+                                                  or MemoryTaskRepository
+```
+
+- [`repository.py`](repository.py) — abstract interface
+- [`memory_repository.py`](memory_repository.py) — original in-memory list (unchanged from A2)
+- [`pg_repository.py`](pg_repository.py) — new PostgreSQL implementation
+
+The active backend is selected automatically:
+- If `DATABASE_URL` is set → Postgres
+- If not → in-memory fallback
+
+**No route or schema code was modified to add Postgres support.** That's the architecture proving itself.
+
+---
+
+## 🔒 Environment Variables
+
+| Variable       | Purpose                    | Default (in `.env.example`)                     |
+|----------------|----------------------------|-------------------------------------------------|
+| `DATABASE_URL` | Postgres connection string | `postgresql://taskuser:taskpass@db:5432/taskdb`  |
+| `REDIS_URL`    | Redis connection string    | `redis://redis:6379/0`                           |
+
+`.env` is gitignored. `.env.example` is committed so new contributors know what to set.
+
+---
+
+## ✅ Persistence Proof
+
+How to verify that data survives a full restart:
+
+```bash
+# 1. Start the stack
+docker compose up --build -d
+
+# 2. Create a task
+curl -X POST http://localhost:8000/tasks \
+  -H "Content-Type: application/json" \
+  -d "{\"title\": \"Persist me!\"}"
+
+# 3. Confirm it exists
+curl http://localhost:8000/tasks
+
+# 4. Stop & destroy the containers (volume survives)
+docker compose down
+
+# 5. Start again
+docker compose up -d
+
+# 6. Check — the task is still there
+curl http://localhost:8000/tasks
+```
+
+The task created in step 2 is still returned in step 6 because the Postgres data lives in the `pgdata` Docker volume, which is **not** removed by `docker compose down`.
+
+> To truly wipe data, run `docker compose down -v` (the `-v` flag removes volumes).
+
+---
+
+## 🧪 Running Without Docker (dev mode)
+
 ```bash
 python -m venv .venv
-```
-### 3. Activate the virtual environment
-#### Windows
-```bash
-.venv\Scripts\activate
-```
-#### Linux / macOS
-```bash
-source .venv/bin/activate
-```
-### 4. Install dependencies
-```bash
+.venv\Scripts\activate          # Windows
 pip install -r requirements.txt
 ```
----
-## ▶️ Running the API
-Start the development server:
+
+**Without Postgres** (falls back to in-memory):
 ```bash
 uvicorn main:app --reload
 ```
-Server:
-```
-http://127.0.0.1:8000
-```
-Swagger UI:
-```
-http://127.0.0.1:8000/docs
-```
-ReDoc:
-```
-http://127.0.0.1:8000/redoc
-```
----
-# API Endpoints
-| Method | Endpoint | Description |
-|---------|----------|-------------|
-| GET | `/` | API information |
-| GET | `/health` | Health check |
-| GET | `/tasks` | Retrieve all tasks |
-| GET | `/tasks/{id}` | Retrieve a task by ID |
-| POST | `/tasks` | Create a new task |
-| PUT | `/tasks/{id}` | Update an existing task |
-| DELETE | `/tasks/{id}` | Delete a task |
----
-## Example Request
-### Create a Task
+
+**With a local Postgres**:
 ```bash
-curl -X POST http://127.0.0.1:8000/tasks \
--H "Content-Type: application/json" \
--d "{\"title\":\"Buy Milk\"}"
-```
-Response
-```json
-{
-  "id": 4,
-  "title": "Buy Milk",
-  "done": false
-}
-```
----
-## Example Response
-```bash
-curl http://127.0.0.1:8000/tasks
-```
-```json
-[
-  {
-    "id": 1,
-    "title": "Learn FastAPI",
-    "done": false
-  },
-  {
-    "id": 2,
-    "title": "Build CRUD API",
-    "done": false
-  }
-]
-```
----
-## HTTP Status Codes
-| Code | Meaning |
-|------|---------|
-| 200 | OK |
-| 201 | Created |
-| 204 | No Content |
-| 400 | Bad Request |
-| 404 | Not Found |
----
-## Project Structure
-```
-task-api/
-│
-├── main.py
-├── requirements.txt
-├── README.md
-└── .venv/
-```
----
-## Swagger Documentation
-FastAPI automatically generates interactive API documentation.
-Visit:
-```
-http://127.0.0.1:8000/docs
+set DATABASE_URL=postgresql://taskuser:taskpass@localhost:5432/taskdb
+uvicorn main:app --reload
 ```
 
-![Swagger UI](docs/swagger-ui.png)
 ---
-## Future Improvements
-- PostgreSQL integration
-- Persistent database storage
-- Authentication
-- Task filtering
-- Pagination
-- Search functionality
-- Docker support
+
+## 🚀 Stretch Goals
+
+### ✅ Redis in Compose
+Redis 7 is included in `docker-compose.yml`. On startup the app pings Redis and logs the result:
+```
+✅ Redis ping → True
+```
+
+### Index + EXPLAIN ANALYZE (optional)
+```sql
+-- Connect to the database
+docker compose exec db psql -U taskuser -d taskdb
+
+-- Before index
+EXPLAIN ANALYZE SELECT * FROM tasks WHERE title = 'Persist me!';
+
+-- Create index
+CREATE INDEX idx_tasks_title ON tasks (title);
+
+-- After index
+EXPLAIN ANALYZE SELECT * FROM tasks WHERE title = 'Persist me!';
+```
+
 ---
-## License
-This project was created for educational purposes as part of a FastAPI CRUD API assignment.
+
+## 📄 License
+
+This project was created for educational purposes as part of a FastAPI CRUD API assignment (Week 3).
